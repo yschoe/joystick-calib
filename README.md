@@ -11,3 +11,22 @@ Run:
 ```bash
 python3 joystick_calibrator.py
 ```
+
+## Windows 11 Port
+
+For Windows, use the SDL/pygame-backed version:
+
+Install dependency:
+```bash
+py -m pip install pygame
+```
+
+Run:
+```bash
+py joystick_calibrator_windows.py
+```
+
+Optional (connect a specific controller index):
+```bash
+py joystick_calibrator_windows.py --device-index 0
+```
