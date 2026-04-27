@@ -38,9 +38,12 @@ class JoystickApp:
         self.joystick: Optional[pygame.joystick.Joystick] = None
         self.axis_states: list[float] = []
         self.button_states: list[int] = []
+        self.hat_states: list[tuple[int, int]] = []
 
         self.stick_widgets: list[StickWidget] = []
         self.button_indicators: list[tuple[tk.Label, tk.StringVar]] = []
+        self.hat_indicators: list[tuple[tk.Label, tk.StringVar, int, str]] = []
+        self.hat_value_vars: list[tk.StringVar] = []
 
         self._build_ui()
         self.refresh_devices()
@@ -82,7 +85,9 @@ class JoystickApp:
         button_frame = ttk.LabelFrame(content, text="Buttons", padding=10)
         button_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM, pady=(10, 0))
         self.buttons_grid = ttk.Frame(button_frame)
-        self.buttons_grid.pack(fill=tk.BOTH, expand=True)
+        self.buttons_grid.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        self.hats_grid = ttk.Frame(button_frame)
+        self.hats_grid.pack(fill=tk.X)
 
     def refresh_devices(self) -> None:
         pygame.joystick.quit()
@@ -135,13 +140,15 @@ class JoystickApp:
 
         axis_count = js.get_numaxes()
         button_count = js.get_numbuttons()
+        hat_count = js.get_numhats()
 
         self.axis_states = [0.0] * axis_count
         self.button_states = [0] * button_count
+        self.hat_states = [(0, 0)] * hat_count
 
-        self._rebuild_dynamic_ui(axis_count, button_count)
+        self._rebuild_dynamic_ui(axis_count, button_count, hat_count)
         self.status_var.set(
-            f"Connected: {js.get_name()} | axes={axis_count}, buttons={button_count}, hats={js.get_numhats()}"
+            f"Connected: {js.get_name()} | axes={axis_count}, buttons={button_count}, hats={hat_count}"
         )
 
     def disconnect(self) -> None:
@@ -154,10 +161,14 @@ class JoystickApp:
             w.destroy()
         for w in self.buttons_grid.winfo_children():
             w.destroy()
+        for w in self.hats_grid.winfo_children():
+            w.destroy()
         self.stick_widgets.clear()
         self.button_indicators.clear()
+        self.hat_indicators.clear()
+        self.hat_value_vars.clear()
 
-    def _rebuild_dynamic_ui(self, axis_count: int, button_count: int) -> None:
+    def _rebuild_dynamic_ui(self, axis_count: int, button_count: int, hat_count: int) -> None:
         self._reset_dynamic_ui()
 
         pair_count = (axis_count + 1) // 2
@@ -212,6 +223,34 @@ class JoystickApp:
         for col in range(columns):
             self.buttons_grid.columnconfigure(col, weight=1)
 
+        if hat_count:
+            ttk.Label(self.hats_grid, text="D-Pad / Hats").grid(row=0, column=0, sticky="w", padx=(2, 2), pady=(2, 6))
+            directions = ("Up", "Down", "Left", "Right")
+            for hat_index in range(hat_count):
+                value_var = tk.StringVar(value=f"Hat {hat_index}: x=0 y=0 [CENTER]")
+                ttk.Label(self.hats_grid, textvariable=value_var).grid(
+                    row=hat_index + 1, column=0, sticky="w", padx=(2, 8), pady=2
+                )
+                self.hat_value_vars.append(value_var)
+
+                for dir_col, direction in enumerate(directions, start=1):
+                    text_var = tk.StringVar(value=f"{direction} [off]")
+                    widget = tk.Label(
+                        self.hats_grid,
+                        textvariable=text_var,
+                        relief=tk.RIDGE,
+                        padx=8,
+                        pady=4,
+                        width=12,
+                        bg="#2d2d2d",
+                        fg="#ffffff",
+                    )
+                    widget.grid(row=hat_index + 1, column=dir_col, sticky="ew", padx=4, pady=2)
+                    self.hat_indicators.append((widget, text_var, hat_index, direction))
+
+            for col in range(5):
+                self.hats_grid.columnconfigure(col, weight=1 if col else 2)
+
         self._refresh_visuals()
 
     def _refresh_visuals(self) -> None:
@@ -229,6 +268,30 @@ class JoystickApp:
             text_var.set(f"{i}: Button {i} [{'ON' if pressed else 'off'}]")
             widget.configure(background="#3a7d44" if pressed else "#2d2d2d", foreground="#ffffff")
 
+        for hat_index, value_var in enumerate(self.hat_value_vars):
+            x, y = self.hat_states[hat_index] if hat_index < len(self.hat_states) else (0, 0)
+            pos_label = "CENTER"
+            if x == -1:
+                pos_label = "LEFT"
+            elif x == 1:
+                pos_label = "RIGHT"
+            if y == 1:
+                pos_label = "UP" if pos_label == "CENTER" else f"{pos_label}+UP"
+            elif y == -1:
+                pos_label = "DOWN" if pos_label == "CENTER" else f"{pos_label}+DOWN"
+            value_var.set(f"Hat {hat_index}: x={x} y={y} [{pos_label}]")
+
+        for widget, text_var, hat_index, direction in self.hat_indicators:
+            x, y = self.hat_states[hat_index] if hat_index < len(self.hat_states) else (0, 0)
+            active = (
+                (direction == "Up" and y == 1)
+                or (direction == "Down" and y == -1)
+                or (direction == "Left" and x == -1)
+                or (direction == "Right" and x == 1)
+            )
+            text_var.set(f"{direction} [{'ON' if active else 'off'}]")
+            widget.configure(background="#3a7d44" if active else "#2d2d2d", foreground="#ffffff")
+
     def poll_inputs(self) -> None:
         if self.joystick is not None:
             try:
@@ -242,6 +305,8 @@ class JoystickApp:
 
             for i in range(len(self.button_states)):
                 self.button_states[i] = self.joystick.get_button(i)
+            for i in range(len(self.hat_states)):
+                self.hat_states[i] = self.joystick.get_hat(i)
 
             self._refresh_visuals()
 
